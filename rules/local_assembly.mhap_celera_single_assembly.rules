@@ -77,6 +77,28 @@ rule quiver_assembly:
             shell("""echo -e "{REGION}\tquiver_failed" >> %s""" % config["log"])
             shell("cat {input.assembly} > {output}")
 
+rule arrow_assembly:
+    input: assembly="assembly.fasta", alignments="alignment.bam", assembly_index="assembly.fasta.fai
+    output: "consensus.fasta"
+    params: sge_opts="", threads="4"
+    run:
+        try:
+            shell("variantCaller --algorithm=arrow -j {params.threads} --referenceFilename {input.assembly} {input.alignments} -o {output};")
+            shell("sed -i 's/^>\(.\+\)/>{REGION}|\\1/' {output}; ")
+        except:
+            shell("""echo -e "{REGION}\tarrow_failed" >> %s""" % config["log"])
+            shell("cat {input.assembly} > {output}")
+            
+rule convert_assembly_alignments_to_bam:
+    input: alignments="alignment.sam", assembly="assembly.fasta", reads="reads.bam"
+    output: "alignment.cmp.h5"
+    params: sge_opts=""
+    shell:
+        "samtoh5 {input.alignments} {input.assembly} {output} -useShortRefName; "
+        "cmph5tools.py sort --deep {output}; "
+        "loadPulses {input.reads} {output} -metrics InsertionQV,DeletionQV,SubstitutionQV,MergeQV,SubstitutionTag,DeletionTag; "
+        "{SNAKEMAKE_DIR}/../scripts/LoadGenericChemistry.py {BAS_TEMPLATE} {output}"
+        
 rule convert_assembly_alignments_to_hdf5:
     input: alignments="alignment.sam", assembly="assembly.fasta", reads="reads.bas.h5"
     output: "alignment.cmp.h5"
@@ -88,10 +110,10 @@ rule convert_assembly_alignments_to_hdf5:
         "{SNAKEMAKE_DIR}/../scripts/LoadGenericChemistry.py {BAS_TEMPLATE} {output}"
 
 rule map_reads_to_assembly:
-    input: "reads.bas.h5", "assembly.fasta"
-    output: "alignment.sam"
+    input: "reads.bam", "assembly.fasta"
+    output: "alignment.bam"
     params: sge_opts="", threads="4"
-    shell: "blasr {input} -sam -bestn 1 -out /dev/stdout -nproc {params.threads} | samtools view -h -F 0x4 -S - > {output}"
+    shell: "blasr {input} -bam -bestn 1 -out /dev/stdout -nproc {params.threads} | samtools sort - > {output}"
 
 rule index_assembly:
     input: "assembly.fasta"
